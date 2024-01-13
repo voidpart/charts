@@ -94,3 +94,6 @@ secrets: {}
 env: {}
 # If present, env will be ignored
 # existingEnvSecret: asd
+
+# deploy extra templates
+extraDeploy: []
