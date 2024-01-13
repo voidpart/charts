@@ -1,0 +1,127 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "livebook.fullname" . }}
+  labels:
+    {{- include "livebook.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "livebook.fullname" . }}-headless
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "livebook.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "livebook.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "livebook.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          envFrom:
+            {{- if .Values.existingEnvSecret }}
+            - secretRef:
+                name: {{ .Values.existingEnvSecret }}
+            {{- else }}
+            - secretRef:
+                name: {{ include "livebook.fullname" . }}-env
+            {{- end }}
+          env:
+            - name: LIVEBOOK_PORT
+              value: {{ .Values.service.port | quote }}
+            - name: LIVEBOOK_SECRET_KEY_BASE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "livebook.fullname" . }}
+                  key: key_base
+            # Cluster
+            - name: LIVEBOOK_CLUSTER
+              value: "dns:{{ include "livebook.fullname" . }}-headless"
+            - name: LIVEBOOK_DISTRIBUTION
+              value: "name"
+            - name: LIVEBOOK_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: LIVEBOOK_COOKIE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "livebook.fullname" . }}
+                  key: cookie
+            - name: LIVEBOOK_NODE
+              value: "livebook_server@$(LIVEBOOK_IP)"
+            # Auth
+            - name: LIVEBOOK_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "livebook.fullname" . }}
+                  key: password
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: config
+              mountPath: /home/livebook/.local/share/livebook/
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        {{- if .Values.persistence.enabled }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "livebook.fullname" . }}-data
+        {{- else }}
+        - name: data
+          emptyDir: {}
+        - name: config
+          emptyDir: {}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- if .Values.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: config
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.persistence.storageClassName }}
+        storageClassName: {{ .Values.persistence.storageClassName }}
+        {{- end }}
+        resources:
+          requests:
+            storage: 1Gi
+  {{- end }}
