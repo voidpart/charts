@@ -1,0 +1,5 @@
+{{- range .Values.extraDeploy }}
+---
+{{- $value := typeIs "string" . | ternary . (. | toYaml) }}
+{{- tpl $value $ }}
+{{- end }}
